@@ -1,0 +1,54 @@
+name: Build APK from ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "wallpaper_app.zip"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip project
+        run: |
+          mkdir -p /tmp/proj
+          unzip -q wallpaper_app.zip -d /tmp/proj
+          PUBSPEC=$(find /tmp/proj -name pubspec.yaml -not -path "*/.*" | head -n 1)
+          echo "APP_DIR=$(dirname "$PUBSPEC")" >> $GITHUB_ENV
+
+      - name: Set repo in baseUrl automatically
+        working-directory: ${{ env.APP_DIR }}
+        run: sed -i "s#USERNAME/REPO#${{ github.repository }}#" lib/main.dart
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Generate Android project
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          cp lib/main.dart /tmp/main.dart
+          flutter create --platforms=android --project-name wallpaper_app --org com.mywall .
+          cp /tmp/main.dart lib/main.dart
+          sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.INTERNET"\/>/' android/app/src/main/AndroidManifest.xml
+
+      - name: Build APK
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          flutter pub get
+          flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wallpaper-apk
+          path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
